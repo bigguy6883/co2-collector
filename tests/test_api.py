@@ -154,3 +154,16 @@ def test_series_oldest_first(client, temp_db):
     series = rv.get_json()["series"]
     timestamps = [p[0] for p in series]
     assert timestamps == sorted(timestamps)
+
+
+def test_root_returns_html(client):
+    rv = client.get("/")
+    assert rv.status_code == 200
+    assert rv.mimetype == "text/html"
+    assert b"<!doctype html>" in rv.data.lower()
+
+
+def test_static_chart_js_served(client):
+    rv = client.get("/static/chart.min.js")
+    assert rv.status_code == 200
+    assert b"Chart" in rv.data

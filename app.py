@@ -6,7 +6,7 @@ import os
 import sqlite3
 from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
-from flask import Flask, request, jsonify, g
+from flask import Flask, request, jsonify, g, render_template
 
 LOCAL_TZ = ZoneInfo("America/New_York")
 
@@ -22,6 +22,11 @@ RANGES = {
 DEFAULT_RANGE = "24h"
 
 app = Flask(__name__)
+
+
+@app.route("/", methods=["GET"])
+def index():
+    return render_template("index.html")
 
 
 def db():
