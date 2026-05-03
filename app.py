@@ -5,7 +5,10 @@ Run on homelab:5004.
 import os
 import sqlite3
 from datetime import datetime, timezone
+from zoneinfo import ZoneInfo
 from flask import Flask, request, jsonify, g
+
+LOCAL_TZ = ZoneInfo("America/New_York")
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "co2.db")
 
@@ -117,6 +120,22 @@ def _latest_for_device(conn, device):
     return d
 
 
+def _today_stats(conn, device):
+    """Min/avg/max for today, where 'today' is the current local-tz day."""
+    now_local = datetime.now(LOCAL_TZ)
+    local_midnight = now_local.replace(hour=0, minute=0, second=0, microsecond=0)
+    cutoff_utc = local_midnight.astimezone(timezone.utc).isoformat(timespec="seconds")
+    row = conn.execute(
+        "SELECT MIN(co2_ppm) AS lo, MAX(co2_ppm) AS hi, AVG(co2_ppm) AS avg"
+        " FROM readings WHERE device = ? AND ts >= ?",
+        (device, cutoff_utc),
+    ).fetchone()
+    if row is None or row["lo"] is None:
+        return None
+    return {"min": int(row["lo"]), "max": int(row["hi"]),
+            "avg": int(round(row["avg"]))}
+
+
 @app.route("/api/summary", methods=["GET"])
 def api_summary():
     conn = db()
@@ -124,10 +143,12 @@ def api_summary():
     requested = request.args.get("device")
     device = requested if requested in devices else (devices[0] if devices else None)
     now_block = _latest_for_device(conn, device) if device else None
+    today_block = _today_stats(conn, device) if device else None
     return jsonify({
         "device": device,
         "devices": devices,
         "now": now_block,
+        "today": today_block,
     })
 
 

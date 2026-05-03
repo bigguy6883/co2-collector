@@ -1,5 +1,17 @@
 """Backend tests for the summary page API."""
+from datetime import datetime
+from zoneinfo import ZoneInfo
+
 from tests.conftest import insert_reading, utc_minutes_ago
+
+NY = ZoneInfo("America/New_York")
+
+
+def _at_local(year, month, day, hour, minute=0):
+    """Return UTC ISO string for a given New-York local wall-clock time."""
+    return datetime(year, month, day, hour, minute, tzinfo=NY).astimezone(
+        ZoneInfo("UTC")
+    ).isoformat(timespec="seconds")
 
 
 def test_health_still_works(client):
@@ -55,3 +67,43 @@ def test_summary_now_none_when_db_empty(client):
     body = rv.get_json()
     assert body["device"] is None
     assert body["now"] is None
+
+
+def test_today_stats_window_is_local_day(client, temp_db, monkeypatch):
+    # Freeze "now" to 2026-05-03 14:00 New_York.
+    fixed_now = datetime(2026, 5, 3, 14, 0, tzinfo=NY)
+
+    import app as app_module
+
+    class FakeDateTime(datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return fixed_now.astimezone(tz) if tz else fixed_now
+
+    monkeypatch.setattr(app_module, "datetime", FakeDateTime)
+
+    # Yesterday 23:00 NY  -> NOT included
+    insert_reading(temp_db, device="c", ppm=2000,
+                   ts=_at_local(2026, 5, 2, 23, 0))
+    # Today 02:00 NY      -> included (min)
+    insert_reading(temp_db, device="c", ppm=400,
+                   ts=_at_local(2026, 5, 3, 2, 0))
+    # Today 10:00 NY      -> included
+    insert_reading(temp_db, device="c", ppm=600,
+                   ts=_at_local(2026, 5, 3, 10, 0))
+    # Today 13:00 NY      -> included (max)
+    insert_reading(temp_db, device="c", ppm=800,
+                   ts=_at_local(2026, 5, 3, 13, 0))
+
+    rv = client.get("/api/summary?device=c")
+    today = rv.get_json()["today"]
+    assert today["min"] == 400
+    assert today["max"] == 800
+    assert today["avg"] == 600  # (400+600+800)/3
+
+
+def test_today_stats_none_when_no_today_rows(client, temp_db):
+    insert_reading(temp_db, device="c", ppm=500,
+                   ts="2025-01-01T00:00:00+00:00")
+    rv = client.get("/api/summary?device=c")
+    assert rv.get_json()["today"] is None
