@@ -88,6 +88,17 @@ def health():
     return jsonify(ok=True, readings=count)
 
 
+@app.route("/api/summary", methods=["GET"])
+def api_summary():
+    conn = db()
+    rows = conn.execute(
+        "SELECT device, MAX(ts) AS last_ts FROM readings"
+        " GROUP BY device ORDER BY last_ts DESC"
+    ).fetchall()
+    devices = [r["device"] for r in rows]
+    return jsonify({"devices": devices})
+
+
 if __name__ == "__main__":
     init_db()
     app.run(host="0.0.0.0", port=5004)
