@@ -144,7 +144,213 @@
 
   <script src="{{ url_for('static', filename='chart.min.js') }}"></script>
   <script>
-    /* JS arrives in Task 9 */
+  (() => {
+    const COLOR_BANDS = [
+      { max: 600,     cls: 'pill-deep',   label: 'fresh'  },
+      { max: 1000,    cls: 'pill-light',  label: 'ok'     },
+      { max: 1500,    cls: 'pill-yellow', label: 'stuffy' },
+      { max: Infinity, cls: 'pill-red',   label: 'bad'    },
+    ];
+    const PILL_CLASSES = ['pill-deep', 'pill-light', 'pill-yellow', 'pill-red', 'pill-muted'];
+    const RANGE_KEYS = ['15m', '1h', '24h', '7d', '30d'];
+    const REFRESH_MS = 60_000;
+
+    const $ = (id) => document.getElementById(id);
+    const els = {
+      pill: $('now-pill'), value: $('now-value'),
+      dot: $('status-dot'), statusLabel: $('status-label'),
+      temp: $('temp'), humidity: $('humidity'), updated: $('updated'),
+      todayMin: $('today-min'), todayAvg: $('today-avg'), todayMax: $('today-max'),
+      ranges: $('ranges'), picker: $('device-picker'),
+      chartCanvas: $('chart'), banner: $('offline-banner'),
+    };
+
+    // ---- URL-hash state ----
+    function readHash() {
+      const params = new URLSearchParams(location.hash.replace(/^#/, ''));
+      const range = RANGE_KEYS.includes(params.get('range')) ? params.get('range') : '24h';
+      return { device: params.get('device'), range };
+    }
+    function writeHash(state) {
+      const p = new URLSearchParams();
+      if (state.device) p.set('device', state.device);
+      p.set('range', state.range);
+      history.replaceState(null, '', '#' + p.toString());
+    }
+
+    let state = readHash();
+    let chart = null;
+
+    // ---- Helpers ----
+    function bandFor(ppm) { return COLOR_BANDS.find((b) => ppm < b.max); }
+
+    function setPillClass(cls) {
+      PILL_CLASSES.forEach((c) => els.pill.classList.remove(c));
+      els.pill.classList.add(cls);
+    }
+
+    // ---- Renderers (textContent-only for dynamic data) ----
+    function renderNow(now) {
+      if (!now) {
+        setPillClass('pill-muted');
+        els.value.textContent = '—';
+        els.statusLabel.textContent = 'no data';
+        els.dot.style.background = '';
+        els.temp.textContent = '—';
+        els.humidity.textContent = '—';
+        els.updated.className = 'updated';
+        els.updated.textContent = 'no readings yet';
+        return;
+      }
+      const band = bandFor(now.co2_ppm);
+      setPillClass(band.cls);
+      els.value.textContent = String(now.co2_ppm);
+      els.statusLabel.textContent = band.label;
+      els.dot.style.background = getComputedStyle(els.pill).backgroundColor;
+      els.temp.textContent = (now.temp_f != null) ? now.temp_f.toFixed(1) : '—';
+      els.humidity.textContent = (now.humidity != null) ? String(Math.round(now.humidity)) : '—';
+
+      const age = now.age_seconds ?? 0;
+      let cls = 'updated', txt;
+      if (age < 60) txt = `updated ${age}s ago`;
+      else if (age < 3600) txt = `updated ${Math.floor(age / 60)}m ago`;
+      else txt = `updated ${Math.floor(age / 3600)}h ago`;
+      if (age >= 15 * 60) cls = 'updated stale';
+      else if (age >= 5 * 60) cls = 'updated warn';
+      els.updated.className = cls;
+      els.updated.textContent = txt;
+    }
+
+    function renderToday(today) {
+      if (!today) {
+        els.todayMin.textContent = '—';
+        els.todayAvg.textContent = '—';
+        els.todayMax.textContent = '—';
+        return;
+      }
+      els.todayMin.textContent = String(today.min);
+      els.todayAvg.textContent = String(today.avg);
+      els.todayMax.textContent = String(today.max);
+    }
+
+    function renderRanges(activeRange) {
+      Array.from(els.ranges.children).forEach((btn) => {
+        btn.classList.toggle('active', btn.dataset.range === activeRange);
+      });
+    }
+
+    function renderDevices(devices, current) {
+      if (!devices || devices.length <= 1) {
+        els.picker.hidden = true;
+        return;
+      }
+      els.picker.hidden = false;
+      while (els.picker.firstChild) els.picker.removeChild(els.picker.firstChild);
+      for (const d of devices) {
+        // new Option safely escapes the text — never use innerHTML here.
+        const opt = new Option(d, d, d === current, d === current);
+        els.picker.add(opt);
+      }
+    }
+
+    function renderChart(series) {
+      const labels = series.map((p) => new Date(p[0]));
+      const data   = series.map((p) => p[1]);
+      if (!chart) {
+        chart = new Chart(els.chartCanvas, {
+          type: 'line',
+          data: { labels, datasets: [{
+            data, label: 'ppm',
+            borderColor: '#4ade80', backgroundColor: 'rgba(74,222,128,0.15)',
+            borderWidth: 2, fill: true, tension: 0.25,
+            pointRadius: 0, pointHoverRadius: 4,
+          }]},
+          options: {
+            responsive: true, maintainAspectRatio: false, animation: false,
+            plugins: { legend: { display: false } },
+            scales: {
+              x: { type: 'time', time: { tooltipFormat: 'PP p' },
+                   ticks: { color: '#94a3b8', maxRotation: 0, autoSkipPadding: 16 },
+                   grid:  { color: '#334155' } },
+              y: { ticks: { color: '#94a3b8' }, grid: { color: '#334155' },
+                   suggestedMin: 400 },
+            },
+          },
+        });
+        Chart.register({
+          id: 'guideLine',
+          afterDatasetsDraw(c) {
+            const y = c.scales.y.getPixelForValue(1500);
+            if (y < c.chartArea.top || y > c.chartArea.bottom) return;
+            const ctx = c.ctx;
+            ctx.save();
+            ctx.strokeStyle = 'rgba(239, 68, 68, 0.5)';
+            ctx.setLineDash([4, 4]);
+            ctx.beginPath();
+            ctx.moveTo(c.chartArea.left, y);
+            ctx.lineTo(c.chartArea.right, y);
+            ctx.stroke();
+            ctx.restore();
+          },
+        });
+      } else {
+        chart.data.labels = labels;
+        chart.data.datasets[0].data = data;
+        chart.update('none');
+      }
+    }
+
+    function showBanner(show) { els.banner.classList.toggle('show', show); }
+
+    // ---- Fetch ----
+    async function fetchSummary() {
+      const params = new URLSearchParams({ range: state.range });
+      if (state.device) params.set('device', state.device);
+      const r = await fetch('/api/summary?' + params.toString(), { cache: 'no-store' });
+      if (!r.ok) throw new Error('http ' + r.status);
+      return r.json();
+    }
+
+    async function refresh() {
+      try {
+        const data = await fetchSummary();
+        if (data.device && state.device !== data.device) {
+          state.device = data.device;
+          writeHash(state);
+        }
+        renderDevices(data.devices, data.device);
+        renderNow(data.now);
+        renderToday(data.today);
+        renderChart(data.series || []);
+        renderRanges(data.range);
+        showBanner(false);
+      } catch (err) {
+        showBanner(true);
+      }
+    }
+
+    // ---- Event wiring ----
+    els.ranges.addEventListener('click', (e) => {
+      const btn = e.target.closest('button[data-range]');
+      if (!btn) return;
+      state.range = btn.dataset.range;
+      writeHash(state);
+      refresh();
+    });
+    els.picker.addEventListener('change', (e) => {
+      state.device = e.target.value;
+      writeHash(state);
+      refresh();
+    });
+    window.addEventListener('hashchange', () => {
+      state = readHash();
+      refresh();
+    });
+
+    // ---- Boot ----
+    refresh();
+    setInterval(refresh, REFRESH_MS);
+  })();
   </script>
 </body>
 </html>
