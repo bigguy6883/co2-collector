@@ -88,15 +88,47 @@ def health():
     return jsonify(ok=True, readings=count)
 
 
-@app.route("/api/summary", methods=["GET"])
-def api_summary():
-    conn = db()
+def _distinct_devices(conn):
     rows = conn.execute(
         "SELECT device, MAX(ts) AS last_ts FROM readings"
         " GROUP BY device ORDER BY last_ts DESC"
     ).fetchall()
-    devices = [r["device"] for r in rows]
-    return jsonify({"devices": devices})
+    return [r["device"] for r in rows]
+
+
+def _latest_for_device(conn, device):
+    row = conn.execute(
+        "SELECT ts, device, co2_ppm, temp_c, humidity, servo_angle"
+        " FROM readings WHERE device = ? ORDER BY id DESC LIMIT 1",
+        (device,),
+    ).fetchone()
+    if row is None:
+        return None
+    d = dict(row)
+    if d["temp_c"] is not None:
+        d["temp_f"] = round(d["temp_c"] * 9 / 5 + 32, 1)
+    try:
+        ts_dt = datetime.fromisoformat(d["ts"])
+        if ts_dt.tzinfo is None:
+            ts_dt = ts_dt.replace(tzinfo=timezone.utc)
+        d["age_seconds"] = max(0, int((datetime.now(timezone.utc) - ts_dt).total_seconds()))
+    except ValueError:
+        d["age_seconds"] = None
+    return d
+
+
+@app.route("/api/summary", methods=["GET"])
+def api_summary():
+    conn = db()
+    devices = _distinct_devices(conn)
+    requested = request.args.get("device")
+    device = requested if requested in devices else (devices[0] if devices else None)
+    now_block = _latest_for_device(conn, device) if device else None
+    return jsonify({
+        "device": device,
+        "devices": devices,
+        "now": now_block,
+    })
 
 
 if __name__ == "__main__":
