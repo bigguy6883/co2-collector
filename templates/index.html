@@ -2,9 +2,149 @@
 <html lang="en">
 <head>
   <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <meta name="theme-color" content="#0f172a" />
   <title>CO2 Canary</title>
+  <style>
+    :root {
+      --bg: #0f172a;
+      --card: #1e293b;
+      --text: #f1f5f9;
+      --muted: #94a3b8;
+      --border: #334155;
+      --green-deep: #15803d;
+      --green-light: #4ade80;
+      --yellow: #facc15;
+      --red: #ef4444;
+      --amber: #f59e0b;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      * { animation: none !important; transition: none !important; }
+    }
+    * { box-sizing: border-box; }
+    html, body { margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font: 16px/1.4 -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto,
+            "Helvetica Neue", Arial, sans-serif;
+      padding: 16px;
+      max-width: 480px;
+      margin: 0 auto;
+      padding-bottom: env(safe-area-inset-bottom, 16px);
+    }
+    .card {
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      padding: 16px;
+      margin-bottom: 12px;
+    }
+    .header {
+      display: flex; justify-content: space-between; align-items: center;
+      margin-bottom: 12px;
+    }
+    .header h1 { margin: 0; font-size: 14px; letter-spacing: 0.08em;
+                 text-transform: uppercase; color: var(--muted); font-weight: 600; }
+    .picker { background: transparent; color: var(--text); border: 1px solid var(--border);
+              border-radius: 8px; padding: 4px 8px; font-size: 14px; }
+
+    .now { text-align: center; padding: 24px 16px 20px; }
+    .now-pill {
+      display: inline-flex; align-items: baseline; gap: 6px;
+      padding: 12px 28px; border-radius: 999px;
+      font-size: 56px; font-weight: 700; line-height: 1; letter-spacing: -0.02em;
+      transition: background-color 200ms ease;
+    }
+    .now-pill .unit { font-size: 22px; font-weight: 500; opacity: 0.85; }
+    .pill-deep   { background: var(--green-deep);  color: #fff; }
+    .pill-light  { background: var(--green-light); color: #052e16; }
+    .pill-yellow { background: var(--yellow);      color: #422006; }
+    .pill-red    { background: var(--red);         color: #fff; }
+    .pill-muted  { background: #475569;            color: #cbd5e1; }
+
+    .status { margin-top: 8px; color: var(--muted); display: flex;
+              gap: 6px; align-items: center; justify-content: center; }
+    .status .dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); }
+    .env { margin-top: 14px; color: var(--muted); font-size: 15px; }
+    .env strong { color: var(--text); font-weight: 600; }
+    .updated { margin-top: 6px; font-size: 13px; color: var(--muted); }
+    .updated.warn  { color: var(--amber); }
+    .updated.stale { color: var(--red); }
+
+    .today { display: flex; justify-content: space-around; }
+    .today .stat { text-align: center; }
+    .today .stat .label { color: var(--muted); font-size: 12px;
+                          letter-spacing: 0.08em; text-transform: uppercase; }
+    .today .stat .value { font-size: 22px; font-weight: 600; margin-top: 2px; }
+
+    .ranges { display: flex; gap: 6px; margin-bottom: 12px; flex-wrap: wrap; }
+    .ranges button {
+      flex: 1; min-width: 56px;
+      padding: 8px 0;
+      background: transparent; color: var(--muted);
+      border: 1px solid var(--border); border-radius: 999px;
+      font-size: 14px; cursor: pointer;
+    }
+    .ranges button.active { background: var(--text); color: var(--bg); border-color: var(--text); }
+
+    .chart-wrap { position: relative; height: 220px; }
+
+    .banner {
+      position: fixed; top: 8px; left: 50%; transform: translateX(-50%);
+      background: var(--amber); color: #422006; padding: 6px 14px;
+      border-radius: 999px; font-size: 13px; font-weight: 600;
+      box-shadow: 0 2px 8px rgba(0,0,0,0.3);
+      opacity: 0; pointer-events: none; transition: opacity 200ms ease;
+    }
+    .banner.show { opacity: 1; }
+  </style>
 </head>
 <body>
-  <p>placeholder</p>
+  <div id="offline-banner" class="banner">offline · retrying</div>
+
+  <div class="card">
+    <div class="header">
+      <h1>CO2 Canary</h1>
+      <select id="device-picker" class="picker" hidden></select>
+    </div>
+    <div class="now">
+      <div id="now-pill" class="now-pill pill-muted">
+        <span id="now-value">—</span><span class="unit">ppm</span>
+      </div>
+      <div class="status">
+        <span id="status-dot" class="dot"></span>
+        <span id="status-label">no data</span>
+      </div>
+      <div class="env">
+        <strong id="temp">—</strong> °F
+        &nbsp;·&nbsp;
+        <strong id="humidity">—</strong> % RH
+      </div>
+      <div id="updated" class="updated">no readings yet</div>
+    </div>
+  </div>
+
+  <div class="card today">
+    <div class="stat"><div class="label">min</div><div id="today-min" class="value">—</div></div>
+    <div class="stat"><div class="label">avg</div><div id="today-avg" class="value">—</div></div>
+    <div class="stat"><div class="label">max</div><div id="today-max" class="value">—</div></div>
+  </div>
+
+  <div class="card">
+    <div class="ranges" id="ranges">
+      <button data-range="15m">15m</button>
+      <button data-range="1h">1h</button>
+      <button data-range="24h" class="active">24h</button>
+      <button data-range="7d">7d</button>
+      <button data-range="30d">30d</button>
+    </div>
+    <div class="chart-wrap"><canvas id="chart"></canvas></div>
+  </div>
+
+  <script src="{{ url_for('static', filename='chart.min.js') }}"></script>
+  <script>
+    /* JS arrives in Task 9 */
+  </script>
 </body>
 </html>
