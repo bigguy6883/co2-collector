@@ -4,13 +4,22 @@ Run on homelab:5004.
 """
 import os
 import sqlite3
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from zoneinfo import ZoneInfo
 from flask import Flask, request, jsonify, g
 
 LOCAL_TZ = ZoneInfo("America/New_York")
 
 DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "co2.db")
+
+RANGES = {
+    "15m": (15 * 60,           60),
+    "1h":  (60 * 60,           120),
+    "24h": (24 * 60 * 60,      288),
+    "7d":  (7 * 24 * 60 * 60,  336),
+    "30d": (30 * 24 * 60 * 60, 360),
+}
+DEFAULT_RANGE = "24h"
 
 app = Flask(__name__)
 
@@ -136,19 +145,49 @@ def _today_stats(conn, device):
             "avg": int(round(row["avg"]))}
 
 
+def _series(conn, device, range_key):
+    """Bucket-averaged time series, oldest first."""
+    window_s, max_points = RANGES[range_key]
+    bucket_s = max(1, window_s // max_points)
+    cutoff = (datetime.now(timezone.utc) - timedelta(seconds=window_s)) \
+        .isoformat(timespec="seconds")
+    rows = conn.execute(
+        """
+        SELECT
+            MIN(ts) AS bucket_ts,
+            AVG(co2_ppm) AS avg_ppm
+        FROM readings
+        WHERE device = ? AND ts >= ?
+        GROUP BY CAST(strftime('%s', ts) AS INTEGER) / ?
+        ORDER BY bucket_ts ASC
+        """,
+        (device, cutoff, bucket_s),
+    ).fetchall()
+    return [[r["bucket_ts"], int(round(r["avg_ppm"]))] for r in rows]
+
+
 @app.route("/api/summary", methods=["GET"])
 def api_summary():
     conn = db()
     devices = _distinct_devices(conn)
     requested = request.args.get("device")
     device = requested if requested in devices else (devices[0] if devices else None)
+
+    range_key = request.args.get("range", DEFAULT_RANGE)
+    if range_key not in RANGES:
+        range_key = DEFAULT_RANGE
+
     now_block = _latest_for_device(conn, device) if device else None
     today_block = _today_stats(conn, device) if device else None
+    series = _series(conn, device, range_key) if device else []
+
     return jsonify({
         "device": device,
         "devices": devices,
+        "range": range_key,
         "now": now_block,
         "today": today_block,
+        "series": series,
     })
 
 

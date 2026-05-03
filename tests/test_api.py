@@ -1,8 +1,8 @@
 """Backend tests for the summary page API."""
-from datetime import datetime
+from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
-from tests.conftest import insert_reading, utc_minutes_ago
+from tests.conftest import insert_reading, utc_minutes_ago, utc_now
 
 NY = ZoneInfo("America/New_York")
 
@@ -107,3 +107,50 @@ def test_today_stats_none_when_no_today_rows(client, temp_db):
                    ts="2025-01-01T00:00:00+00:00")
     rv = client.get("/api/summary?device=c")
     assert rv.get_json()["today"] is None
+
+
+def test_series_default_range_is_24h(client, temp_db):
+    insert_reading(temp_db, device="c", ppm=500)
+    rv = client.get("/api/summary?device=c")
+    assert rv.get_json()["range"] == "24h"
+
+
+def test_series_unknown_range_falls_back_to_24h(client, temp_db):
+    insert_reading(temp_db, device="c", ppm=500)
+    rv = client.get("/api/summary?device=c&range=bogus")
+    assert rv.get_json()["range"] == "24h"
+
+
+def test_series_only_includes_rows_in_window(client, temp_db):
+    base = utc_now()
+    for i in range(30):
+        ts = (base - timedelta(minutes=i)).isoformat(timespec="seconds")
+        insert_reading(temp_db, device="c", ppm=500 + i, ts=ts)
+    insert_reading(temp_db, device="c", ppm=9999,
+                   ts="2020-01-01T00:00:00+00:00")
+    rv = client.get("/api/summary?device=c&range=15m")
+    series = rv.get_json()["series"]
+    assert all(point[1] != 9999 for point in series)
+    assert len(series) <= 60
+    assert len(series) >= 1
+
+
+def test_series_downsamples_to_max_points(client, temp_db):
+    base = utc_now()
+    for i in range(1000):
+        ts = (base - timedelta(seconds=i * 80)).isoformat(timespec="seconds")
+        insert_reading(temp_db, device="c", ppm=500 + (i % 50), ts=ts)
+    rv = client.get("/api/summary?device=c&range=24h")
+    series = rv.get_json()["series"]
+    assert 1 < len(series) <= 288
+
+
+def test_series_oldest_first(client, temp_db):
+    base = utc_now()
+    for i in range(5):
+        ts = (base - timedelta(minutes=i)).isoformat(timespec="seconds")
+        insert_reading(temp_db, device="c", ppm=500 + i, ts=ts)
+    rv = client.get("/api/summary?device=c&range=15m")
+    series = rv.get_json()["series"]
+    timestamps = [p[0] for p in series]
+    assert timestamps == sorted(timestamps)
