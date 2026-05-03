@@ -1,0 +1,7 @@
+__pycache__/
+*.pyc
+venv/
+co2.db
+co2.db-journal
+co2.db-wal
+co2.db-shm
