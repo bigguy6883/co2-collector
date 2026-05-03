@@ -151,7 +151,8 @@ def _today_stats(conn, device):
 
 
 def _series(conn, device, range_key):
-    """Bucket-averaged time series, oldest first."""
+    # Use MAX per bucket so transient spikes (which matter for air quality)
+    # are never smoothed out by averaging adjacent quiet samples.
     window_s, max_points = RANGES[range_key]
     bucket_s = max(1, window_s // max_points)
     cutoff = (datetime.now(timezone.utc) - timedelta(seconds=window_s)) \
@@ -160,7 +161,7 @@ def _series(conn, device, range_key):
         """
         SELECT
             MIN(ts) AS bucket_ts,
-            AVG(co2_ppm) AS avg_ppm
+            MAX(co2_ppm) AS peak_ppm
         FROM readings
         WHERE device = ? AND ts >= ?
         GROUP BY CAST(strftime('%s', ts) AS INTEGER) / ?
@@ -168,7 +169,7 @@ def _series(conn, device, range_key):
         """,
         (device, cutoff, bucket_s),
     ).fetchall()
-    return [[r["bucket_ts"], int(round(r["avg_ppm"]))] for r in rows]
+    return [[r["bucket_ts"], int(r["peak_ppm"])] for r in rows]
 
 
 @app.route("/api/summary", methods=["GET"])

@@ -156,6 +156,20 @@ def test_series_oldest_first(client, temp_db):
     assert timestamps == sorted(timestamps)
 
 
+def test_series_uses_max_per_bucket_not_avg(client, temp_db):
+    """Peaks must not be averaged away — bucket value should be the MAX in the window."""
+    base = utc_now()
+    insert_reading(temp_db, device="c", ppm=500,
+                   ts=(base - timedelta(seconds=2)).isoformat(timespec="seconds"))
+    insert_reading(temp_db, device="c", ppm=2500,
+                   ts=(base - timedelta(seconds=1)).isoformat(timespec="seconds"))
+    insert_reading(temp_db, device="c", ppm=600,
+                   ts=base.isoformat(timespec="seconds"))
+    rv = client.get("/api/summary?device=c&range=15m")
+    bucket_values = [p[1] for p in rv.get_json()["series"]]
+    assert max(bucket_values) == 2500, bucket_values
+
+
 def test_root_returns_html(client):
     rv = client.get("/")
     assert rv.status_code == 200
