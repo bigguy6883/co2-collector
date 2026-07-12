@@ -228,6 +228,20 @@ def test_post_co2_missing_ts_still_defaults_to_now(client, temp_db):
     assert rv.get_json()["ts"].endswith("+00:00")
 
 
+def test_post_co2_rejects_future_ts(client, temp_db):
+    """A far-future ts would permanently pin the 'latest reading' (ORDER BY ts)."""
+    future = (utc_now() + timedelta(hours=2)).isoformat(timespec="seconds")
+    rv = client.post("/co2", json={"co2_ppm": 500, "ts": future})
+    assert rv.status_code == 400
+    assert "error" in rv.get_json()
+
+
+def test_post_co2_accepts_ts_within_clock_skew(client, temp_db):
+    near = (utc_now() + timedelta(seconds=60)).isoformat(timespec="seconds")
+    rv = client.post("/co2", json={"co2_ppm": 500, "ts": near})
+    assert rv.status_code == 200
+
+
 def test_init_db_index_shape(temp_db):
     with sqlite3.connect(temp_db) as c:
         names = {r[0] for r in c.execute(

@@ -84,7 +84,12 @@ def post_co2():
             return jsonify(error="ts must be ISO-8601"), 400
         if ts_dt.tzinfo is None:
             ts_dt = ts_dt.replace(tzinfo=timezone.utc)
-        ts = ts_dt.astimezone(timezone.utc).isoformat(timespec="seconds")
+        ts_dt = ts_dt.astimezone(timezone.utc)
+        # Latest-reading lookup orders by ts, so a future ts would pin the
+        # dashboard's "now" until overtaken. Allow modest clock skew only.
+        if ts_dt > datetime.now(timezone.utc) + timedelta(minutes=5):
+            return jsonify(error="ts is in the future"), 400
+        ts = ts_dt.isoformat(timespec="seconds")
 
     db().execute(
         "INSERT INTO readings (ts, device, co2_ppm, temp_c, humidity, servo_angle)"
