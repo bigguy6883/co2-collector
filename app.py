@@ -134,7 +134,7 @@ def _distinct_devices(conn):
 def _latest_for_device(conn, device):
     row = conn.execute(
         "SELECT ts, device, co2_ppm, temp_c, humidity, servo_angle"
-        " FROM readings WHERE device = ? ORDER BY id DESC LIMIT 1",
+        " FROM readings WHERE device = ? ORDER BY ts DESC LIMIT 1",
         (device,),
     ).fetchone()
     if row is None:
