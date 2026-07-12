@@ -85,7 +85,13 @@ def post_co2():
 
 @app.route("/co2/recent", methods=["GET"])
 def recent():
-    limit = min(int(request.args.get("limit", 50)), 500)
+    try:
+        limit = int(request.args.get("limit", 50))
+    except ValueError:
+        return jsonify(error="limit must be an integer"), 400
+    if limit < 1:
+        return jsonify(error="limit must be >= 1"), 400
+    limit = min(limit, 500)
     rows = db().execute(
         "SELECT ts, device, co2_ppm, temp_c, humidity, servo_angle"
         " FROM readings ORDER BY id DESC LIMIT ?", (limit,)

@@ -181,3 +181,21 @@ def test_static_chart_js_served(client):
     rv = client.get("/static/chart.min.js")
     assert rv.status_code == 200
     assert b"Chart" in rv.data
+
+
+def test_recent_limit_non_numeric_returns_400(client):
+    rv = client.get("/co2/recent?limit=abc")
+    assert rv.status_code == 400
+    assert "error" in rv.get_json()
+
+
+def test_recent_limit_below_one_returns_400(client):
+    assert client.get("/co2/recent?limit=0").status_code == 400
+    assert client.get("/co2/recent?limit=-1").status_code == 400
+
+
+def test_recent_limit_capped_not_erroring(client, temp_db):
+    insert_reading(temp_db, ppm=500)
+    rv = client.get("/co2/recent?limit=99999")
+    assert rv.status_code == 200
+    assert len(rv.get_json()) == 1
