@@ -57,7 +57,9 @@ def init_db():
             )
         """)
         c.execute("CREATE INDEX IF NOT EXISTS idx_readings_ts ON readings(ts)")
-        c.execute("CREATE INDEX IF NOT EXISTS idx_readings_device ON readings(device)")
+        c.execute("CREATE INDEX IF NOT EXISTS idx_readings_device_ts"
+                  " ON readings(device, ts)")
+        c.execute("DROP INDEX IF EXISTS idx_readings_device")
 
 
 @app.route("/co2", methods=["POST"])

@@ -1,4 +1,5 @@
 """Backend tests for the summary page API."""
+import sqlite3
 from datetime import datetime, timedelta
 from zoneinfo import ZoneInfo
 
@@ -225,3 +226,11 @@ def test_post_co2_missing_ts_still_defaults_to_now(client, temp_db):
     rv = client.post("/co2", json={"co2_ppm": 500})
     assert rv.status_code == 200
     assert rv.get_json()["ts"].endswith("+00:00")
+
+
+def test_init_db_index_shape(temp_db):
+    with sqlite3.connect(temp_db) as c:
+        names = {r[0] for r in c.execute(
+            "SELECT name FROM sqlite_master WHERE type='index'"
+            " AND name LIKE 'idx_%'")}
+    assert names == {"idx_readings_ts", "idx_readings_device_ts"}
