@@ -216,5 +216,6 @@ def api_summary():
 
 
 if __name__ == "__main__":
+    from waitress import serve
     init_db()
-    app.run(host="0.0.0.0", port=5004)
+    serve(app, host="0.0.0.0", port=5004, threads=4)
