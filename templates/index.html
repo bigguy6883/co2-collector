@@ -183,6 +183,23 @@
     let state = readHash();
     let chart = null;
 
+    Chart.register({
+      id: 'guideLine',
+      afterDatasetsDraw(c) {
+        const y = c.scales.y.getPixelForValue(1500);
+        if (y < c.chartArea.top || y > c.chartArea.bottom) return;
+        const ctx = c.ctx;
+        ctx.save();
+        ctx.strokeStyle = 'rgba(239, 68, 68, 0.5)';
+        ctx.setLineDash([4, 4]);
+        ctx.beginPath();
+        ctx.moveTo(c.chartArea.left, y);
+        ctx.lineTo(c.chartArea.right, y);
+        ctx.stroke();
+        ctx.restore();
+      },
+    });
+
     // ---- Helpers ----
     function bandFor(ppm) { return COLOR_BANDS.find((b) => ppm < b.max); }
 
@@ -277,22 +294,6 @@
               y: { ticks: { color: '#94a3b8' }, grid: { color: '#334155' },
                    suggestedMin: 400 },
             },
-          },
-        });
-        Chart.register({
-          id: 'guideLine',
-          afterDatasetsDraw(c) {
-            const y = c.scales.y.getPixelForValue(1500);
-            if (y < c.chartArea.top || y > c.chartArea.bottom) return;
-            const ctx = c.ctx;
-            ctx.save();
-            ctx.strokeStyle = 'rgba(239, 68, 68, 0.5)';
-            ctx.setLineDash([4, 4]);
-            ctx.beginPath();
-            ctx.moveTo(c.chartArea.left, y);
-            ctx.lineTo(c.chartArea.right, y);
-            ctx.stroke();
-            ctx.restore();
           },
         });
       } else {
