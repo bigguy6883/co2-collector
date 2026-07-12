@@ -72,7 +72,17 @@ def post_co2():
     temp = data.get("temp_c")
     hum = data.get("humidity")
     angle = data.get("servo_angle")
-    ts = data.get("ts") or datetime.now(timezone.utc).isoformat(timespec="seconds")
+    ts_raw = data.get("ts") or None
+    if ts_raw is None:
+        ts = datetime.now(timezone.utc).isoformat(timespec="seconds")
+    else:
+        try:
+            ts_dt = datetime.fromisoformat(str(ts_raw))
+        except ValueError:
+            return jsonify(error="ts must be ISO-8601"), 400
+        if ts_dt.tzinfo is None:
+            ts_dt = ts_dt.replace(tzinfo=timezone.utc)
+        ts = ts_dt.astimezone(timezone.utc).isoformat(timespec="seconds")
 
     db().execute(
         "INSERT INTO readings (ts, device, co2_ppm, temp_c, humidity, servo_angle)"

@@ -199,3 +199,29 @@ def test_recent_limit_capped_not_erroring(client, temp_db):
     rv = client.get("/co2/recent?limit=99999")
     assert rv.status_code == 200
     assert len(rv.get_json()) == 1
+
+
+def test_post_co2_rejects_malformed_ts(client):
+    rv = client.post("/co2", json={"co2_ppm": 500, "ts": "not-a-date"})
+    assert rv.status_code == 400
+    assert "error" in rv.get_json()
+
+
+def test_post_co2_normalizes_offset_ts_to_utc(client, temp_db):
+    rv = client.post("/co2", json={"co2_ppm": 500,
+                                   "ts": "2026-07-12T08:00:00-04:00"})
+    assert rv.status_code == 200
+    assert rv.get_json()["ts"] == "2026-07-12T12:00:00+00:00"
+
+
+def test_post_co2_naive_ts_assumed_utc(client, temp_db):
+    rv = client.post("/co2", json={"co2_ppm": 500,
+                                   "ts": "2026-07-12T12:00:00"})
+    assert rv.status_code == 200
+    assert rv.get_json()["ts"] == "2026-07-12T12:00:00+00:00"
+
+
+def test_post_co2_missing_ts_still_defaults_to_now(client, temp_db):
+    rv = client.post("/co2", json={"co2_ppm": 500})
+    assert rv.status_code == 200
+    assert rv.get_json()["ts"].endswith("+00:00")
