@@ -2,8 +2,6 @@
 
 Tiny Flask app that receives CO₂ readings from [co2-canary](https://github.com/bigguy6883/co2-canary) (or any device that can POST JSON), stores them in SQLite, and serves a phone-friendly dashboard.
 
-![dashboard screenshot placeholder]()
-
 ## What it does
 
 - **Ingests** readings via `POST /co2` (JSON, no auth — designed for a trusted LAN).
@@ -49,8 +47,8 @@ git clone https://github.com/bigguy6883/co2-collector.git
 cd co2-collector
 python3 -m venv venv
 source venv/bin/activate
-pip install flask
-python app.py            # listens on 0.0.0.0:5004
+pip install -r requirements.txt
+python app.py            # serves via waitress on 0.0.0.0:5004
 ```
 
 The schema is created on first run. No migration step needed.
